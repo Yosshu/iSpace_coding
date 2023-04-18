@@ -356,27 +356,28 @@ def main():
     while True:
         ret, frame1 = cap1.read()           # カメラからの画像取得
         results = model(frame1)             # 人の検出
+        img_axes = frame1.copy()
         #objects = results.pandas().xyxy[0]
+        """
         xmins = results.pandas().xyxy[0]['xmin']
         ymins = results.pandas().xyxy[0]['ymin']
         xmaxs = results.pandas().xyxy[0]['xmax']
         ymaxs = results.pandas().xyxy[0]['ymax']
+        """
         #print(f'xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}')
 
         is_in_area = False
-        for (xmin,xmax,ymax) in zip(xmins,xmaxs,ymaxs):
+        for bbox in results.xyxy[0]:
+            xmin, ymin, xmax, ymax, conf, cls = bbox
             person_bottom_x_i = int((xmin+xmax)/2)
             person_bottom_y_i = int(ymax)
             is_in_area = is_in_area or es.in_area(person_bottom_x_i, person_bottom_y_i, 1, 1, 3, 3)
-        #print(len(results.xyxy[0]))
-                
-        img_axes = frame1.copy()
-        # バウンディングボックス描画
-        for bbox in results.xyxy[0]:
-            x1, y1, x2, y2, conf, cls = bbox
+
+            # バウンディングボックスの描画
             if int(cls) == 0:  # クラスがpersonの場合
-                cv2.rectangle(img_axes, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-        img_axes = es.draw_area(img_axes,1,1,3,3,0,is_in_area)
+                cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 0, 255), 2)
+            img_axes = es.draw_area(img_axes,1,1,3,3,0,is_in_area)
+        #print(len(results.xyxy[0]))
 
 
         img_axes = draw(img_axes,corners12,imgpts)
