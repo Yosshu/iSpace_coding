@@ -357,17 +357,17 @@ def main():
         ret, frame1 = cap1.read()           # カメラからの画像取得
         results = model(frame1)             # 人の検出
         #objects = results.pandas().xyxy[0]
-        xmin = results.pandas().xyxy[0]['xmin']
-        ymin = results.pandas().xyxy[0]['ymin']
-        xmax = results.pandas().xyxy[0]['xmax']
-        ymax = results.pandas().xyxy[0]['ymax']
+        xmins = results.pandas().xyxy[0]['xmin']
+        ymins = results.pandas().xyxy[0]['ymin']
+        xmaxs = results.pandas().xyxy[0]['xmax']
+        ymaxs = results.pandas().xyxy[0]['ymax']
         #print(f'xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}')
 
         is_in_area = False
-        if not (xmin.empty or ymin.empty or xmax.empty or ymax.empty) and len(results.xyxy[0]) == 1:
+        for (xmin,xmax,ymax) in zip(xmins,xmaxs,ymaxs):
             person_bottom_x_i = int((xmin+xmax)/2)
             person_bottom_y_i = int(ymax)
-            is_in_area = es.in_area(person_bottom_x_i, person_bottom_y_i, 1, 1, 3, 3)
+            is_in_area = is_in_area or es.in_area(person_bottom_x_i, person_bottom_y_i, 1, 1, 3, 3)
         #print(len(results.xyxy[0]))
                 
         img_axes = frame1.copy()
