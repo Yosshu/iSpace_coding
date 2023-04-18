@@ -263,6 +263,20 @@ class Estimation:
         if area_xmin_w <= bottom_xy_w[0] <= area_xmax_w and area_ymin_w <= bottom_xy_w[1] <= area_ymax_w:
             return True
         return False
+    
+    def draw_area(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag):
+        points_w = np.float32([[Xw1, Yw1, Zw], [Xw2, Yw1, Zw], [Xw1, Yw2, Zw], [Xw2, Yw2, Zw]]).reshape(-1,3)
+        points_i, _ = cv2.projectPoints(points_w, self.rvecs[-1], self.tvecs[-1], self.mtx, self.dist)
+        points_i = points_i.reshape(-1, 2)
+        points_i = np.asarray(points_i, dtype = int)
+        points_i = points_i[[0, 1, 3, 2],:]
+        color = (255,255,0) if flag else (50,50,0)
+        cv2.polylines(img, [points_i], True, color, thickness=3)
+        return img
+
+
+
+
 
 def main():
     model = torch.hub.load('ultralytics/yolov5', 'yolov5x')     # モデルの読み込み
@@ -349,12 +363,12 @@ def main():
         ymax = results.pandas().xyxy[0]['ymax']
         #print(f'xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}')
 
+        is_in_area = False
         if not (xmin.empty or ymin.empty or xmax.empty or ymax.empty) and len(results.xyxy[0]) == 1:
             person_bottom_x_i = int((xmin+xmax)/2)
             person_bottom_y_i = int(ymax)
-            print(es.in_area(person_bottom_x_i, person_bottom_y_i, 1, 1, 3, 3))
+            is_in_area = es.in_area(person_bottom_x_i, person_bottom_y_i, 1, 1, 3, 3)
         #print(len(results.xyxy[0]))
-
                 
         img_axes = frame1.copy()
         # バウンディングボックス描画
@@ -362,6 +376,7 @@ def main():
             x1, y1, x2, y2, conf, cls = bbox
             if int(cls) == 0:  # クラスがpersonの場合
                 cv2.rectangle(img_axes, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+        img_axes = es.draw_area(img_axes,1,1,3,3,0,is_in_area)
 
 
         img_axes = draw(img_axes,corners12,imgpts)
