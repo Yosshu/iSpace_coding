@@ -264,14 +264,22 @@ class Estimation:
             return True
         return False
     
-    def draw_area(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag):
+    def draw_area(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag, count):
         points_w = np.float32([[Xw1, Yw1, Zw], [Xw2, Yw1, Zw], [Xw1, Yw2, Zw], [Xw2, Yw2, Zw]]).reshape(-1,3)
         points_i, _ = cv2.projectPoints(points_w, self.rvecs[-1], self.tvecs[-1], self.mtx, self.dist)
         points_i = points_i.reshape(-1, 2)
         points_i = np.asarray(points_i, dtype = int)
         points_i = points_i[[0, 1, 3, 2],:]
-        color = (255,255,0) if flag else (50,50,0)
-        cv2.polylines(img, [points_i], True, color, thickness=3)
+        area_color = (255,255,0) if flag else (50,50,0)
+        cv2.polylines(img, [points_i], True, area_color, thickness=3)
+        cv2.putText(img,
+            text= str(count),
+            org=(int(np.mean(points_i[:, 0])-20), int(np.mean(points_i[:, 1])+10)),
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=2.0,
+            color=area_color,
+            thickness=3,
+            lineType=cv2.LINE_4)
         return img
 
 
@@ -279,7 +287,7 @@ class Estimation:
 
 
 def main():
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5x')     # モデルの読み込み
+    model = torch.hub.load('ultralytics/yolov5', 'yolov5s')     # モデルの読み込み
     model.classes = [0]                                         # モデルを人のみに限定する
 
     # 検出するチェッカーボードの交点の数
@@ -352,6 +360,7 @@ def main():
 
     cv2.setMouseCallback('camera1', es.onMouse)         # 1カメの画像に対するクリックイベント
 
+    WHERE_AREA = ((1,1),(4,3))
 
     while True:
         ret, frame1 = cap1.read()           # カメラからの画像取得
@@ -365,19 +374,31 @@ def main():
         ymaxs = results.pandas().xyxy[0]['ymax']
         """
         #print(f'xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}')
-
-        is_in_area = False
-        for bbox in results.xyxy[0]:
+        count_people = 0
+        any_in_area = False
+        for count, bbox in enumerate(results.xyxy[0]):
             xmin, ymin, xmax, ymax, conf, cls = bbox
             person_bottom_x_i = int((xmin+xmax)/2)
             person_bottom_y_i = int(ymax)
-            is_in_area = is_in_area or es.in_area(person_bottom_x_i, person_bottom_y_i, 1, 1, 3, 3)
+            is_in_area = es.in_area(person_bottom_x_i, person_bottom_y_i, *WHERE_AREA[0], *WHERE_AREA[1])
+            any_in_area = any_in_area or is_in_area
+            if is_in_area:
+                count_people = count_people + 1
 
+            person_color = (0,0,200)
             # バウンディングボックスの描画
-            if int(cls) == 0:  # クラスがpersonの場合
-                cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 0, 255), 2)
-            img_axes = es.draw_area(img_axes,1,1,3,3,0,is_in_area)
-        #print(len(results.xyxy[0]))
+            if conf >= 0.6:
+                if int(cls) == 0:  # クラスがpersonの場合
+                    cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), person_color, 2)
+                    cv2.putText(img_axes,
+                        text= f'person{count}, {round(float(conf), 3)}',
+                        org=(int(xmin), int(ymin-6)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=1.0,
+                        color=person_color,
+                        thickness=2,
+                        lineType=cv2.LINE_4)
+        img_axes = es.draw_area(img_axes, *WHERE_AREA[0], *WHERE_AREA[1], 0, any_in_area, count_people)
 
 
         img_axes = draw(img_axes,corners12,imgpts)
