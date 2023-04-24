@@ -12,6 +12,7 @@ from numpy import linalg as LA
 from itertools import product
 
 import torch
+import time
 
 
 def draw(img, corners, imgpts):         # 座標軸を描画する関数
@@ -134,13 +135,6 @@ class Estimation:
         self.click = 0
         self.widthy = 1
 
-
-    def talker(self, num):
-        #rospy.loginfo(num)
-        self.pub.publish(num)
-
-
-
     def onMouse(self, event, x, y, flags, params):      # 1カメの画像に対するクリックイベント
         if self.click == 0:
             if event == cv2.EVENT_MBUTTONDOWN:    # 中クリック
@@ -149,8 +143,7 @@ class Estimation:
                 res = [round(n*self.scale,2) for n in res]
                 print(f"{res} [cm]")
                 self.obj1_i1x = x
-                self.obj1_i1y = y
-                self.LRMclick = 'M'
+                self.obj1_timekeepingick = 'M'
                 self.click = 0
 
 
@@ -186,23 +179,6 @@ class Estimation:
 
             return camera2_w, obj2_w
 
-        return None, None
-
-
-    def undist_npoint(self, x, y, num):
-        r = math.sqrt(x**2 + y**2)
-        if num == 1:
-            nume = 1 + self.k1_1*r**2 + self.k2_1*r**4 + self.k3_1*r**6
-            deno = 1 + self.k4_1*r**2 + self.k5_1*r**4 + self.k6_1*r**6
-            undist_n1x = x*(nume/deno) + 2*self.p1_1*x*y + self.p2_1*(r**2 + 2*x**2)
-            undist_n1y = y*(nume/deno) + self.p1_1*(r**2 + 2*y**2) + 2*self.p2_1*x*y
-            return undist_n1x, undist_n1y
-        elif num == 2:
-            nume = 1 + self.k1_2*r**2 + self.k2_2*r**4 + self.k3_2*r**6
-            deno = 1 + self.k4_2*r**2 + self.k5_2*r**4 + self.k6_2*r**6
-            undist_n2x = x*(nume/deno) + 2*self.p1_2*x*y + self.p2_2*(r**2 + 2*x**2)
-            undist_n2y = y*(nume/deno) + self.p1_2*(r**2 + 2*y**2) + 2*self.p2_2*x*y
-            return undist_n2x, undist_n2y
         return None, None
 
 
@@ -264,7 +240,7 @@ class Estimation:
             return True
         return False
     
-    def draw_area(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag, count):
+    def draw_area(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag, count, total_time):
         points_w = np.float32([[Xw1, Yw1, Zw], [Xw2, Yw1, Zw], [Xw1, Yw2, Zw], [Xw2, Yw2, Zw]]).reshape(-1,3)
         points_i, _ = cv2.projectPoints(points_w, self.rvecs[-1], self.tvecs[-1], self.mtx, self.dist)
         points_i = points_i.reshape(-1, 2)
@@ -273,21 +249,55 @@ class Estimation:
         area_color = (255,255,0) if flag else (50,50,0)
         cv2.polylines(img, [points_i], True, area_color, thickness=3)
         cv2.putText(img,
-            text= str(count),
-            org=(int(np.mean(points_i[:, 0])-20), int(np.mean(points_i[:, 1])+10)),
+            text= f'{count}',
+            org=(int(np.mean(points_i[:, 0])-20), int(np.mean(points_i[:, 1])-10)),
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=2.0,
+            color=area_color,
+            thickness=3,
+            lineType=cv2.LINE_4)
+        cv2.putText(img,
+            text= f'{round(total_time,2)}',
+            org=(int(points_i[0][0]), int(np.mean(points_i[:, 1])+50)),
             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
             fontScale=2.0,
             color=area_color,
             thickness=3,
             lineType=cv2.LINE_4)
         return img
+    
+class RetainingTime:
+    def __init__(self):
+        self.total_time = 0
+        self.previous_time = 0
+        self.start_time = 0
+        self.time_started = False
 
-
-
+    def start_and_accumulate(self, flag):
+        if flag == True:
+            if self.time_started == False:
+                # 時間計測開始
+                self.start_time = time.perf_counter()
+                self.time_started = True
+            elif self.time_started == True:
+                dtime = self.dtime()
+                self.total_time = dtime + self.previous_time
+        elif flag == False and self.time_started == True:
+            dtime = self.dtime()
+            self.previous_time = dtime + self.previous_time
+            self.time_started = False
+        return self.total_time
+    
+    def dtime(self):
+        end_time = time.perf_counter()
+        # 経過時間（秒）
+        dtime = end_time - self.start_time
+        return dtime
+        
 
 
 def main():
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5s')     # モデルの読み込み
+    model = torch.hub.load('ultralytics/yolov5', 'yolov5n')     # モデルの読み込み
     model.classes = [0]                                         # モデルを人のみに限定する
 
     # 検出するチェッカーボードの交点の数
@@ -356,11 +366,12 @@ def main():
     imgpts, _ = cv2.projectPoints(axis, rvecs[-1], tvecs[-1], mtx, dist)
     
     es = Estimation(mtx, dist, rvecs, tvecs, frame1, imgpoints, tate, yoko)
-
+    rtime = RetainingTime()
 
     cv2.setMouseCallback('camera1', es.onMouse)         # 1カメの画像に対するクリックイベント
 
     WHERE_AREA = ((1,1),(4,3))
+    
 
     while True:
         ret, frame1 = cap1.read()           # カメラからの画像取得
@@ -384,21 +395,24 @@ def main():
             any_in_area = any_in_area or is_in_area
             if is_in_area:
                 count_people = count_people + 1
-
-            person_color = (0,0,200)
+            
+            PERSON_COLOR = (0,0,200)
             # バウンディングボックスの描画
             if conf >= 0.6:
                 if int(cls) == 0:  # クラスがpersonの場合
-                    cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), person_color, 2)
+                    cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), PERSON_COLOR, 2)
                     cv2.putText(img_axes,
-                        text= f'person{count}, {round(float(conf), 3)}',
+                        #text= f'person{count}, {round(float(conf), 3)}',
+                        text= f'person{count}',
                         org=(int(xmin), int(ymin-6)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale=1.0,
-                        color=person_color,
+                        color=PERSON_COLOR,
                         thickness=2,
                         lineType=cv2.LINE_4)
-        img_axes = es.draw_area(img_axes, *WHERE_AREA[0], *WHERE_AREA[1], 0, any_in_area, count_people)
+                    
+        total_time = rtime.start_and_accumulate(any_in_area)
+        img_axes = es.draw_area(img_axes, *WHERE_AREA[0], *WHERE_AREA[1], 0, any_in_area, count_people, total_time)
 
 
         img_axes = draw(img_axes,corners12,imgpts)
