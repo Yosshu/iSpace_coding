@@ -257,7 +257,7 @@ class Estimation:
             thickness=3,
             lineType=cv2.LINE_4)
         cv2.putText(img,
-            text= f'{round(total_time,2)}',
+            text= f'{round(total_time,2)}s',
             org=(int(points_i[0][0]), int(np.mean(points_i[:, 1])+50)),
             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
             fontScale=2.0,
@@ -330,7 +330,7 @@ def main():
     _, frame1 = cap1.read()           #カメラからの画像取得
     gray = cv2.cvtColor(frame1,cv2.COLOR_BGR2GRAY)
     cv2.imshow('camera1' , frame1)
-    corners = np.array([138, 178, 209, 179, 283, 180, 359, 183, 434, 185, 506, 188, 121, 226, 196, 228, 278, 230, 361, 233, 444, 235, 522, 236, 100, 283, 182, 287, 272, 290, 364, 292, 454, 294, 538, 294, 79, 350, 167, 358, 265, 363, 366, 365, 465, 365, 556, 363, 57, 426, 152, 439, 257, 447, 368, 451, 475, 449, 575, 442],dtype='float32').reshape(-1,1,2)
+    corners = np.array([253, 79, 316, 93, 381, 109, 453, 127, 525, 145, 595, 166, 218, 117, 283, 133, 355, 150, 431, 172, 510, 193, 588, 215, 179, 161, 247, 179, 322, 201, 405, 225, 491, 249, 577, 275, 135, 213, 204, 236, 285, 261, 372, 290, 467, 319, 560, 346, 85, 271, 157, 300, 240, 332, 334, 366, 435, 400, 538, 430],dtype='float32').reshape(-1,1,2)
     corners12 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
     imgpoints.append(corners12)
 
@@ -403,7 +403,7 @@ def main():
                     cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), PERSON_COLOR, 2)
                     cv2.putText(img_axes,
                         #text= f'person{count}, {round(float(conf), 3)}',
-                        text= f'person{count}',
+                        text= f'person',
                         org=(int(xmin), int(ymin-6)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale=1.0,
@@ -420,6 +420,10 @@ def main():
         if ret:
             img_axes = es.line_update(img_axes)
             cv2.imshow('camera1', img_axes)      #カメラの画像の出力
+
+        big_img = img_axes.copy()
+        big_img = cv2.resize(big_img,dsize=(big_img.shape[1]*15//8,big_img.shape[0]*15//8))       # これで出力画像のサイズを変更
+        cv2.imshow('iSpace_big_img', big_img)      #カメラの画像の出力
 
             
         #繰り返し分から抜けるためのif文
