@@ -12,9 +12,35 @@ class Camera:
         self.R, _ = cv2.Rodrigues(np.array(self.rvecs))     # 1カメの回転行列
         self.tvecs = tvecs              # 並進ベクトル
 
-        self.tate = TATE                # 検出する交点の縦の数
-        self.yoko = YOKO                # 検出する交点の横の数
+        self.TATE = TATE                # 検出する交点の縦の数
+        self.YOKO = YOKO                # 検出する交点の横の数
         self.imgpoints = imgpoints      # 交点の画像座標
+
+        self.camera_w = (self.R.T) @ (np.array([[0], [0], [0]]) - np.array(self.tvecs))             # カメラ原点のワールド座標        Ｗ = Ｒ1^T (Ｃ1 - ｔ1)
+
+    def onMouse(self, event, x, y, flags, params):      # 1カメの画像に対するクリックイベント
+        if event == cv2.EVENT_LBUTTONDOWN:                                              # 画像を左クリックしたら，
+            click_n_w = self.i_to_n_w(x,y)
+
+        if event == cv2.EVENT_MBUTTONDOWN:
+            pass
+
+    def undist_point(self, dist_u, dist_v):
+        dist_uv = np.array([dist_u, dist_v],dtype='float32')
+        undist_uv = cv2.undistortPoints(dist_uv, self.mtx, self.dist, P=self.mtx)
+        undist_uv = dist_uv[0][0]
+        undist_uv = [dist_uv[0],dist_uv[1]]
+        return undist_uv
+
+    def i_to_n_w(self, u, v):    # ある点の画像座標から，その点の正規化画像座標系における点のワールド座標を求める
+        pts_i = self.undist_point(u,v)
+        pts_n_x = (pts_i[0] - self.mtx[0][2]) / self.mtx[0][0]
+        pts_n_y = (pts_i[1] - self.mtx[1][2]) / self.mtx[1][1]
+        pts_n = [[pts_n_x], [pts_n_y], [1]]                                    # 対象物の1カメ正規化画像座標系を1カメカメラ座標系に変換
+        pts_n_w = (np.linalg.inv(self.R)) @ (np.array(pts_n) - np.array(self.tvecs))
+        return pts_n_w
+    
+
 
 
 def main():
