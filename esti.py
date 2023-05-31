@@ -189,7 +189,7 @@ class TwoCameras:
             startpoint_i2y  = slope_i2*(0                    - obj_i2[0]) + obj_i2[1]         # エピポーラ線の2カメ画像の左端のy座標を求める
             endpoint_i2y   = slope_i2*(img.shape[1]   - obj_i2[0]) + obj_i2[1]     # エピポーラ線の2カメ画像の右端のy座標を求める
 
-            img = cv2.line(img, (0, int(startpoint_i2y)), (img.shape[1], int(endpoint_i2y)), (0,255,255), 2)    # エピポーラ線を描画
+            img = cv2.line(img, (0, int(startpoint_i2y)), (img.shape[1], int(endpoint_i2y)), (0, 165, 255), 2)    # エピポーラ線を描画
         
         return img
 
