@@ -9,20 +9,22 @@ class Camera:
         self.dist = dist                # 歪み係数
         self.rvecs = rvecs              # 回転ベクトル
         # 回転ベクトルを3×1から3×3に変換
-        self.R, _ = cv2.Rodrigues(np.array(self.rvecs))     # 1カメの回転行列
+        self.R, _ = cv2.Rodrigues(np.array(self.rvecs))     # 回転行列
         self.tvecs = tvecs              # 並進ベクトル
 
         self.TATE = TATE                # 検出する交点の縦の数
         self.YOKO = YOKO                # 検出する交点の横の数
         self.imgpoints = imgpoints      # 交点の画像座標
 
-        self.camera_w = (self.R.T) @ (np.array([[0], [0], [0]]) - np.array(self.tvecs))             # カメラ原点のワールド座標        Ｗ = Ｒ1^T (Ｃ1 - ｔ1)
+        self.camera_w = (self.R.T) @ (np.array([[0], [0], [0]]) - np.array(self.tvecs))             # カメラ原点のワールド座標        Ｗ = Ｒ^T (Ｃ - ｔ)
 
-    def onMouse(self, event, u, v, flags, params):      # 1カメの画像に対するクリックイベント
-        if event == cv2.EVENT_LBUTTONDOWN:                                              # 画像を左クリックしたら，
-            click_n_w = self.i_to_n_w(u,v)
+        self.click_n_w = []
 
-        if event == cv2.EVENT_MBUTTONDOWN:
+    def onMouse(self, event, u, v, flags, params):      # クリックイベント
+        if event == cv2.EVENT_LBUTTONDOWN:              # 画像を左クリックしたら
+            self.click_n_w = self.i_to_n_w(u,v)
+
+        if event == cv2.EVENT_MBUTTONDOWN:              # 画像をホイールクリックしたら
             self.i_to_fixed_w(u,v,'z',0)
 
     def undist_point(self, dist_u, dist_v):
@@ -43,11 +45,11 @@ class Camera:
         if fixed_var == 'z': value = -value
         pts_i_undist = self.undist_point(u,v)
         
-        pts_n_x = (pts_i_undist[0] - self.mtx[0][2]) / self.mtx[0][0]                   # 対象物の正規化座標　原点を真ん中にしてから，焦点距離で割る
+        pts_n_x = (pts_i_undist[0] - self.mtx[0][2]) / self.mtx[0][0]                   # 画像座標系から正規化座標系に投影　原点を真ん中にしてから，焦点距離で割る
         pts_n_y = (pts_i_undist[1] - self.mtx[1][2]) / self.mtx[1][1]
         
-        pts_n = [[pts_n_x], [pts_n_y], [1]]                                    # 対象物の1カメ正規化画像座標系を1カメカメラ座標系に変換
-        pts_n_w = (np.linalg.inv(self.R)) @ (np.array(pts_n) - np.array(self.tvecs))    # obj_n1を世界座標系に変換              Ｗ = Ｒ^T (Ｃ - ｔ)
+        pts_n_c = [[pts_n_x], [pts_n_y], [1]]                                    # 対象物の正規化画像座標系上の点をカメラ座標系で表す
+        pts_n_w = (np.linalg.inv(self.R)) @ (np.array(pts_n_c) - np.array(self.tvecs))    # pts_n_cを世界座標系に変換              Ｗ = Ｒ^T (Ｃ - ｔ)
         
         if fixed_var == 'x':
             slopeyx_w = (self.camera_w[0][0] - pts_n_w[0][0])/(self.camera_w[1][0] - pts_n_w[1][0])
@@ -73,6 +75,29 @@ class Camera:
             pts_w_x = round(pts_w_x, 4)
             pts_w_y = round(pts_w_y, 4)
             print([pts_w_x,pts_w_y,-value])
+            
+    def projection(self, w_x, w_y, w_z):
+        C = self.R @ [[w_x], [w_y], [w_z]] + self.tvecs
+        N = C/C[2]
+        I = self.mtx @ N
+        i_u = I[0][0]
+        i_v = I[1][0]
+        return i_u, i_v
+
+class TwoCameras:
+    def __init__(self, cam1, cam2):
+        self.cam1 = cam1
+        self.cam2 = cam2
+
+    def two_lines_to_point(self):
+        line1 = np.hstack((self.cam1.camera_w.T, self.cam1.click_n_w.T)).reshape(2, 3)   # 1カメのワールド座標 と 1カメ画像でクリックされた点のワールド座標を通る直線
+        line2 = np.hstack((self.cam2.camera_w.T, self.cam2.click_n_w.T)).reshape(2, 3)   # 2カメのワールド座標 と 2カメ画像でクリックされた点のワールド座標を通る直線
+        res = distance_2lines(line1, line2)                                  # 2本の直線の最接近点のワールド座標を求める
+
+        res[0] = round(res[0], 4)                                             # 結果の値を四捨五入
+        res[1] = round(res[1], 4)
+        res[2] = round(res[2], 4)
+        print(f'{res}\n')                                                        # 最終結果であるワールド座標を出力
 
 
 
@@ -100,6 +125,54 @@ def draw_axes(img, corners, imgpts):         # 座標軸を描画する関数
     img = cv2.line(img, (int(corners[0][0][0]), int(corners[0][0][1])), (int(imgpts[1][0][0]), int(imgpts[1][0][1])), (0,255,0), 3)   # Y軸 Green
     img = cv2.line(img, (int(corners[0][0][0]), int(corners[0][0][1])), (int(imgpts[2][0][0]), int(imgpts[2][0][1])), (0,0,255), 3)   # Z軸 Red
     return img
+
+def distance_2lines(line1, line2):    # 直線同士の最接近距離と最接近点を求める関数
+    '''
+    直線同士の最接近距離と最接近点
+    return 直線間の距離, line1上の最近接点、line2上の最近接点
+    '''
+    line1 = [np.array(line1[0]),np.array(line1[1])]
+    line2 = [np.array(line2[0]),np.array(line2[1])]
+
+    if abs(np.linalg.norm(line1[1]))<0.0000001:
+        return None,None,None
+    if abs(np.linalg.norm(line2[1]))<0.0000001:
+        return None,None,None
+
+    p1 = line1[0]
+    p2 = line2[0]
+
+    v1 = line1[1] / np.linalg.norm(line1[1])
+    v2 = line2[1] / np.linalg.norm(line2[1])
+
+    d1 = np.dot(p2 - p1,v1)
+    d2 = np.dot(p2 - p1,v2)
+    dv = np.dot(v1,v2)
+
+    if (abs(abs(dv) - 1) < 0.0000001):
+        v = np.cross(p2 - p1,v1)
+        return np.linalg.norm(v),None,None
+
+    t1 = (d1 - d2 * dv) / (1 - dv * dv)
+    t2 = (d2 - d1 * dv) / (dv * dv - 1)
+
+    #外挿を含む最近接点
+    q1 = p1 + t1 * v1
+    q2 = p2 + t2 * v2
+
+    q1[0]=-q1[0]
+    q1[1]=-q1[1]
+
+    q2[0]=-q2[0]
+    q2[1]=-q2[1]
+
+    # XYZ座標の候補が2つあるため，平均をとる
+    q3x = (q1[0]+q2[0])
+    q3y = (q1[1]+q2[1])
+    q3z = (q1[2]+q2[2])
+    
+    #return np.linalg.norm(q2 - q1), q1, q2
+    return ([q3x, q3y, q3z])
 
 
 def main():
@@ -193,6 +266,9 @@ def main():
         if key == 27:   #Escで終了
             cv2.destroyAllWindows()
             break
+        elif key == ord('e'):
+            tcams = TwoCameras(cam_list[0],cam_list[1])
+            tcams.two_lines_to_point()
 
     for cap in cap_list:
         cap.release()
