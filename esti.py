@@ -18,20 +18,19 @@ class Camera:
 
         self.camera_w = (self.R.T) @ (np.array([[0], [0], [0]]) - np.array(self.tvecs))             # カメラ原点のワールド座標        Ｗ = Ｒ1^T (Ｃ1 - ｔ1)
 
-    def onMouse(self, event, x, y, flags, params):      # 1カメの画像に対するクリックイベント
+    def onMouse(self, event, u, v, flags, params):      # 1カメの画像に対するクリックイベント
         if event == cv2.EVENT_LBUTTONDOWN:                                              # 画像を左クリックしたら，
-            click_n_w = self.i_to_n_w(x,y)
+            click_n_w = self.i_to_n_w(u,v)
 
         if event == cv2.EVENT_MBUTTONDOWN:
-            self.i_to_fixed_w(x,y,'z',0)
+            self.i_to_fixed_w(u,v,'z',0)
 
     def undist_point(self, dist_u, dist_v):
         dist_uv = np.array([dist_u, dist_v],dtype='float32')
         undist_uv = cv2.undistortPoints(dist_uv, self.mtx, self.dist, P=self.mtx)
-        undist_uv = dist_uv[0][0]
-        undist_uv = [dist_uv[0],dist_uv[1]]
+        undist_uv = undist_uv[0][0]
         return undist_uv
-
+    
     def i_to_n_w(self, u, v):    # ある点の画像座標から，その点の正規化画像座標系における点のワールド座標を求める
         pts_i = self.undist_point(u,v)
         pts_n_x = (pts_i[0] - self.mtx[0][2]) / self.mtx[0][0]
@@ -41,36 +40,36 @@ class Camera:
         return pts_n_w
     
     def i_to_fixed_w(self,u, v, fixed_var, value):      # ワールド座標の三変数のうち，1つを固定することで，1台のカメラからワールド座標を推定する関数
-        if fixed_var == "z": value = -value
+        if fixed_var == 'z': value = -value
         pts_i_undist = self.undist_point(u,v)
         
-        pts_n_x = (pts_i_undist[0] - self.mtx[0][2]) / self.mtx[0][0]                   # 対象物の1カメ正規化座標　原点を真ん中にしてから，焦点距離で割る
+        pts_n_x = (pts_i_undist[0] - self.mtx[0][2]) / self.mtx[0][0]                   # 対象物の正規化座標　原点を真ん中にしてから，焦点距離で割る
         pts_n_y = (pts_i_undist[1] - self.mtx[1][2]) / self.mtx[1][1]
         
         pts_n = [[pts_n_x], [pts_n_y], [1]]                                    # 対象物の1カメ正規化画像座標系を1カメカメラ座標系に変換
         pts_n_w = (np.linalg.inv(self.R)) @ (np.array(pts_n) - np.array(self.tvecs))    # obj_n1を世界座標系に変換              Ｗ = Ｒ^T (Ｃ - ｔ)
         
-        if fixed_var == "x":
-            slopeyx_w = (self.camera1_w[0][0][0] - pts_n_w[0][0][0])/(self.camera1_w[0][1][0] - pts_n_w[0][1][0])
-            pts_w_y = ((value - self.camera1_w[0][0][0])/slopeyx_w) + self.camera1_w[0][1][0]
-            slopezx_w = (self.camera1_w[0][0][0] - pts_n_w[0][0][0])/(self.camera1_w[0][2][0] - pts_n_w[0][2][0])
-            pts_w_z = ((value - self.camera1_w[0][0][0])/slopezx_w) + self.camera1_w[0][2][0]
+        if fixed_var == 'x':
+            slopeyx_w = (self.camera_w[0][0] - pts_n_w[0][0])/(self.camera_w[1][0] - pts_n_w[1][0])
+            pts_w_y = ((value - self.camera_w[0][0])/slopeyx_w) + self.camera_w[1][0]
+            slopezx_w = (self.camera_w[0][0] - pts_n_w[0][0])/(self.camera_w[2][0] - pts_n_w[2][0])
+            pts_w_z = ((value - self.camera_w[0][0])/slopezx_w) + self.camera_w[2][0]
             pts_w_y = round(pts_w_y, 4)
             pts_w_z = round(pts_w_z, 4)
             print([value,pts_w_y,-pts_w_z])
-        elif fixed_var == "y":
-            slopexy_w = (self.camera1_w[0][1][0] - pts_n_w[0][1][0])/(self.camera1_w[0][0][0] - pts_n_w[0][0][0])
-            pts_w_x = ((value - self.camera1_w[0][1][0])/slopexy_w) + self.camera1_w[0][0][0]
-            slopezy_w = (self.camera1_w[0][1][0] - pts_n_w[0][1][0])/(self.camera1_w[0][2][0] - pts_n_w[0][2][0])
-            pts_w_z = ((value - self.camera1_w[0][1][0])/slopezy_w) + self.camera1_w[0][2][0]
+        elif fixed_var == 'y':
+            slopexy_w = (self.camera_w[1][0] - pts_n_w[1][0])/(self.camera_w[0][0] - pts_n_w[0][0])
+            pts_w_x = ((value - self.camera_w[1][0])/slopexy_w) + self.camera_w[0][0]
+            slopezy_w = (self.camera_w[1][0] - pts_n_w[1][0])/(self.camera_w[2][0] - pts_n_w[2][0])
+            pts_w_z = ((value - self.camera_w[1][0])/slopezy_w) + self.camera_w[2][0]
             pts_w_x = round(pts_w_x, 4)
             pts_w_z = round(pts_w_z, 4)
             print([pts_w_x,value,-pts_w_z])
-        elif fixed_var == "z":
-            slopexz_w = (self.camera1_w[0][2][0] - pts_n_w[0][2][0])/(self.camera1_w[0][0][0] - pts_n_w[0][0][0])
-            pts_w_x = ((value - self.camera1_w[0][2][0])/slopexz_w) + self.camera1_w[0][0][0]
-            slopeyz_w = (self.camera1_w[0][2][0] - pts_n_w[0][2][0])/(self.camera1_w[0][1][0] - pts_n_w[0][1][0])
-            pts_w_y = ((value - self.camera1_w[0][2][0])/slopeyz_w) + self.camera1_w[0][1][0]
+        elif fixed_var == 'z':
+            slopexz_w = (self.camera_w[2][0] - pts_n_w[2][0])/(self.camera_w[0][0] - pts_n_w[0][0])
+            pts_w_x = ((value - self.camera_w[2][0])/slopexz_w) + self.camera_w[0][0]
+            slopeyz_w = (self.camera_w[2][0] - pts_n_w[2][0])/(self.camera_w[1][0] - pts_n_w[1][0])
+            pts_w_y = ((value - self.camera_w[2][0])/slopeyz_w) + self.camera_w[1][0]
             pts_w_x = round(pts_w_x, 4)
             pts_w_y = round(pts_w_y, 4)
             print([pts_w_x,pts_w_y,-value])
@@ -97,9 +96,9 @@ def axes_pts_i(rvecs, tvecs, mtx, dist):         # 座標軸の先端の画像�
 
 def draw_axes(img, corners, imgpts):         # 座標軸を描画する関数
     #corner = tuple(corners[0].ravel())
-    img = cv2.line(img, (int(corners[-1][0][0]), int(corners[-1][0][1])), (int(imgpts[0][0][0]), int(imgpts[0][0][1])), (255,0,0), 3)   # X軸 Blue
-    img = cv2.line(img, (int(corners[-1][0][0]), int(corners[-1][0][1])), (int(imgpts[1][0][0]), int(imgpts[1][0][1])), (0,255,0), 3)   # Y軸 Green
-    img = cv2.line(img, (int(corners[-1][0][0]), int(corners[-1][0][1])), (int(imgpts[2][0][0]), int(imgpts[2][0][1])), (0,0,255), 3)   # Z軸 Red
+    img = cv2.line(img, (int(corners[0][0][0]), int(corners[0][0][1])), (int(imgpts[0][0][0]), int(imgpts[0][0][1])), (255,0,0), 3)   # X軸 Blue
+    img = cv2.line(img, (int(corners[0][0][0]), int(corners[0][0][1])), (int(imgpts[1][0][0]), int(imgpts[1][0][1])), (0,255,0), 3)   # Y軸 Green
+    img = cv2.line(img, (int(corners[0][0][0]), int(corners[0][0][1])), (int(imgpts[2][0][0]), int(imgpts[2][0][1])), (0,0,255), 3)   # Z軸 Red
     return img
 
 
@@ -134,11 +133,14 @@ def main():
 
     imgpoints_list = []
     # カメラからの画像取得
-    for cap, conners in zip(cap_list, corners_list):
+    for i, (cap, conners) in enumerate(zip(cap_list, corners_list)):
         _, frame = cap.read()
         gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
         SubPix_corners = cv2.cornerSubPix(gray, conners, (11,11), (-1,-1), criteria)
         imgpoints_list.append(SubPix_corners)
+
+        cv2.imshow(f'camera{i+1}', frame)       # あとでクリックイベントを設定するために，ここでウィンドウを出しておく
+
 
     # 内部パラメータ
     mtx1 = np.array([670.42674146, 0, 343.11230192, 0, 671.2945385, 228.79870936, 0, 0, 1]).reshape(3,3)
@@ -162,26 +164,28 @@ def main():
         tvecs_list.append(tvecs)
         # 座標軸の画像座標
         axes_i = axes_pts_i(rvecs, tvecs, mtx, dist)
-        axes_i = np.append(axes_i, corners[0][0][0])
+        #axes_i = np.append(axes_i, corners[0][0][0])
         axes_i_list.append(axes_i)
 
     """
     ret：
-    mtx：camera matrix，カメラ行列(内部パラメータ)
-    dist：distortion coefficients，レンズ歪みパラメータ
-    rvecs：rotation vectors，回転ベクトル
-    tvecs：translation vectors，並進ベクトル
+    mtx：camera matrix，内部パラメータ
+    dist：distortion coefficients，歪み係数
+    rvecs：rotation vectors，外部パラメータの回転ベクトル
+    tvecs：translation vectors，外部パラメータの並進ベクトル
     """
 
     cam_list = []
-    for mtx, dist, rvecs, tvecs, imgpoints in zip(mtx_list, dist_list, rvecs_list, tvecs_list, imgpoints_list):
-        cam_list.append(Camera(mtx, dist, rvecs, tvecs, TATE, YOKO, imgpoints))
+    for i, (mtx, dist, rvecs, tvecs, imgpoints) in enumerate(zip(mtx_list, dist_list, rvecs_list, tvecs_list, imgpoints_list)):
+        cam = Camera(mtx, dist, rvecs, tvecs, TATE, YOKO, imgpoints)
+        cam_list.append(cam)
+        cv2.setMouseCallback(f'camera{i+1}', cam.onMouse)         # 1カメの画像に対するクリックイベント
 
     while True:
         for i, (cam, cap, conners, axes_i) in enumerate(zip(cam_list, cap_list, corners_list, axes_i_list)):
             _, frame = cap.read()
-            #img_axes = draw_axes(frame, conners, axes_i)
-            cv2.imshow(f'camera{i+1}', frame)
+            img_axes = draw_axes(frame, conners, axes_i)
+            cv2.imshow(f'camera{i+1}', img_axes)
 
 
         #繰り返し分から抜けるためのif文
