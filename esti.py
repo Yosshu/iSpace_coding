@@ -89,6 +89,71 @@ class TwoCameras:
         self.cam1 = cam1
         self.cam2 = cam2
 
+    """def ScaleFactor(self):       # スケールファクタを求める関数，結果をスケールファクタで割ることで1マスが1になるようにする
+        stdnum_z = 2         # Z軸方向スケールファクタを求める時の基準点の個数は，tate*yoko*stdnum 個
+
+        std_w = []          # チェッカーボードの交点のワールド座標を格納する配列
+        for i in range(self.tate):
+            for j in range(self.yoko):
+                k = i*self.yoko + j
+                camera1_w, obj1_w = self.line_SEpoint(self.imgpoints[0][k][0][0], self.imgpoints[0][k][0][1], 1)
+                camera2_w, obj2_w = self.line_SEpoint(self.imgpoints2[0][k][0][0], self.imgpoints2[0][k][0][1], 2)
+                line1x = np.hstack((self.cam1.camera_w[0].T, obj1_w[0].T)).reshape(2, 3)
+                line2x = np.hstack((camera2_w[0].T, obj2_w[0].T)).reshape(2, 3)
+                res = distance_2lines(line1x, line2x)
+                std_w.append(res)
+        self.origin = std_w[0]  # 原点のワールド座標
+
+        # X軸方向
+        std_diffx = []
+        for i in range(self.tate):
+            for j in range(self.yoko-1):
+                k = i*self.yoko + j
+                std_diffx.append(std_w[k+1][0] - std_w[k][0])
+        SFx = np.mean(std_diffx)    # 差の平均
+        if SFx > 0:
+            self.pn[0] = 1
+        else:
+            self.pn[0] = -1
+
+        # Y軸方向
+        std_diffy = []
+        for i in range(self.tate-1):
+            for j in range(self.yoko):
+                k = i*self.yoko + j
+                std_diffy.append(std_w[k + self.yoko][1] - std_w[k][1])
+        SFy = np.mean(std_diffy)    # 差の平均
+        if SFy > 0:
+            self.pn[1] = 1
+        else:
+            self.pn[1] = -1
+
+        # Z軸方向
+        std_w_z = []
+        for i in range(self.tate):
+            for j in range(self.yoko):
+                for k in range(stdnum_z+1):
+                    stdpointsz, _ = cv2.projectPoints(np.float32([j,i,-k]), self.rvecs[-1], self.tvecs[-1], self.mtx, self.dist)
+                    stdpoints2z, _ = cv2.projectPoints(np.float32([j,i,-k]), self.rvecs2[-1], self.tvecs2[-1], self.mtx2, self.dist2)
+                    camera1_w, obj1_w = self.line_SEpoint(stdpointsz[0][0][0], stdpointsz[0][0][1], 1)
+                    camera2_w, obj2_w = self.line_SEpoint(stdpoints2z[0][0][0], stdpoints2z[0][0][1], 2)
+                    line1z = np.hstack((camera1_w[0].T, obj1_w[0].T)).reshape(2, 3)
+                    line2z = np.hstack((camera2_w[0].T, obj2_w[0].T)).reshape(2, 3)
+                    res_z = self.distance_2lines(line1z, line2z)
+                    std_w_z.append(res_z[2])
+        std_diffz = []
+        for i in range(self.yoko*self.tate):
+            for j in range(stdnum_z):
+                k = j + i*(stdnum_z+1)
+                std_diffz.append(std_w_z[k+1]-std_w_z[k])
+        SFz = np.mean(std_diffz)
+        if SFz > 0:
+            self.pn[2] = 1
+        else:
+            self.pn[2] = -1
+
+        self.SF = [SFx, SFy, SFz]"""
+
     def two_lines_to_point(self):
         line1 = np.hstack((self.cam1.camera_w.T, self.cam1.click_n_w.T)).reshape(2, 3)   # 1カメのワールド座標 と 1カメ画像でクリックされた点のワールド座標を通る直線
         line2 = np.hstack((self.cam2.camera_w.T, self.cam2.click_n_w.T)).reshape(2, 3)   # 2カメのワールド座標 と 2カメ画像でクリックされた点のワールド座標を通る直線
@@ -99,19 +164,36 @@ class TwoCameras:
         res[2] = round(res[2], 4)
         print(f'{res}\n')                                                        # 最終結果であるワールド座標を出力
 
+    def draw_epipo(self,img,num):
+        if num == 1 and len(self.cam2.click_n_w) > 0:
+            camera2_c1 = np.array(self.cam1.R) @ self.cam2.camera_w + np.array(self.cam1.tvecs)                         # 1カメのカメラ座標系での2カメの位置
+            camera2_i1 = self.cam1.mtx @ (camera2_c1/camera2_c1[2])                                   # 1カメの画像座標系での2カメの位置
 
+            obj_c1 = np.array(self.cam1.R) @ np.array(self.cam2.click_n_w) + np.array(self.cam1.tvecs)                      # obj_wを1カメのカメラ座標系に変換     Ｃ1 = Ｒ1Ｗ + ｔ1
+            obj_i1 = self.cam1.mtx @ (obj_c1/obj_c1[2])                                               # obj_c2を1カメの画像座標に変換
 
-
-
-def update_img(self, img):        # エピポーラ線やクリックした点を描画する関数                                                                                                   # 2カメ画像に対しての処理の場合                                                                                              # 1カメ画像に対しての処理の場合
-    if self.click_count >= 1:                                                                                   # 画像をクリックしていたら，
-        img = cv2.circle(img, (int(self.obj1_i1x),int(self.obj1_i1y)), 4, (0, 165, 255), thickness=-1)          # クリックした点を描画
-        if self.click_count == 2:                                                                               # 2カメ画像をクリックしていたら，
-            startpoint_i1y, endpoint_i1y = self.epipo(self.camera2_w, self.obj2_w, 2)                           # エピポーラ線を求める
+            slope_i1 = (camera2_i1[1] - obj_i1[1])/(camera2_i1[0] - obj_i1[0])          # 線の傾き
+            startpoint_i1y  = slope_i1*(0             - obj_i1[0]) + obj_i1[1]         # エピポーラ線の2カメ画像の左端のy座標を求める
+            endpoint_i1y    = slope_i1*(img.shape[1]  - obj_i1[0]) + obj_i1[1]     # エピポーラ線の2カメ画像の右端のy座標を求める
+            
             img = cv2.line(img, (0, int(startpoint_i1y)), (img.shape[1], int(endpoint_i1y)), (0,255,255), 2)    # エピポーラ線を描画
-    #img = cv2.undistort(img, self.mtx, self.dist, None, self.newcameramtx)
-    return img
-    
+        
+        elif num == 2 and len(self.cam1.click_n_w) > 0:
+            camera1_c2 = np.array(self.cam2.R) @ self.cam1.camera_w + np.array(self.cam2.tvecs)                         # 1カメのカメラ座標系での2カメの位置
+            camera1_i2 = self.cam2.mtx @ (camera1_c2/camera1_c2[2])                                   # 1カメの画像座標系での2カメの位置
+
+            obj_c2 = np.array(self.cam2.R) @ np.array(self.cam1.click_n_w) + np.array(self.cam2.tvecs)                      # obj_wを1カメのカメラ座標系に変換     Ｃ1 = Ｒ1Ｗ + ｔ1
+            obj_i2 = self.cam2.mtx @ (obj_c2/obj_c2[2])                                               # obj_c2を1カメの画像座標に変換
+
+            slope_i2 = (camera1_i2[1] - obj_i2[1])/(camera1_i2[0] - obj_i2[0])          # 線の傾き
+            startpoint_i2y  = slope_i2*(0                    - obj_i2[0]) + obj_i2[1]         # エピポーラ線の2カメ画像の左端のy座標を求める
+            endpoint_i2y   = slope_i2*(img.shape[1]   - obj_i2[0]) + obj_i2[1]     # エピポーラ線の2カメ画像の右端のy座標を求める
+
+            img = cv2.line(img, (0, int(startpoint_i2y)), (img.shape[1], int(endpoint_i2y)), (0,255,255), 2)    # エピポーラ線を描画
+        
+        return img
+
+
 
 def axes_pts_i(rvecs, tvecs, mtx, dist):         # 座標軸の先端の画像座標を求める関数
     # 軸の定義
@@ -253,13 +335,16 @@ def main():
         cam = Camera(mtx, dist, rvecs, tvecs, TATE, YOKO, imgpoints)
         cam_list.append(cam)
         cv2.setMouseCallback(f'camera{i+1}', cam.onMouse)         # 1カメの画像に対するクリックイベント
+        
+    tcams = TwoCameras(cam_list[0],cam_list[1])
 
     while True:
         for i, (cam, cap, conners, axes_i) in enumerate(zip(cam_list, cap_list, corners_list, axes_i_list)):
             _, frame = cap.read()
             img_axes = draw_axes(frame, conners, axes_i)
-            cv2.imshow(f'camera{i+1}', img_axes)
-
+            img_epipo = tcams.draw_epipo(img_axes, i+1)
+            cv2.imshow(f'camera{i+1}', img_epipo)
+        
 
         #繰り返し分から抜けるためのif文
         key =cv2.waitKey(1)
@@ -267,7 +352,6 @@ def main():
             cv2.destroyAllWindows()
             break
         elif key == ord('e'):
-            tcams = TwoCameras(cam_list[0],cam_list[1])
             tcams.two_lines_to_point()
 
     for cap in cap_list:
