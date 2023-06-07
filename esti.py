@@ -1,7 +1,7 @@
-import numpy as np
 import cv2
+import numpy as np
 import math
-import time
+import colorsys
 
 class Camera:
     def __init__(self, mtx, dist, rvecs, tvecs, TATE, YOKO, imgpoints):
@@ -25,7 +25,8 @@ class Camera:
             self.click_n_w = self.i_to_n_w(u,v)
 
         if event == cv2.EVENT_MBUTTONDOWN:              # 画像をホイールクリックしたら
-            self.i_to_fixed_w(u,v,'z',0)
+            W = self.i_to_fixed_w(u,v,'z',0)
+            print(W)
 
     def undist_point(self, dist_u, dist_v):
         dist_uv = np.array([dist_u, dist_v],dtype='float32')
@@ -37,8 +38,8 @@ class Camera:
         pts_i = self.undist_point(u,v)
         pts_n_x = (pts_i[0] - self.mtx[0][2]) / self.mtx[0][0]
         pts_n_y = (pts_i[1] - self.mtx[1][2]) / self.mtx[1][1]
-        pts_n = [[pts_n_x], [pts_n_y], [1]]                                    # 対象物の1カメ正規化画像座標系を1カメカメラ座標系に変換
-        pts_n_w = (np.linalg.inv(self.R)) @ (np.array(pts_n) - np.array(self.tvecs))
+        pts_n_c = [[pts_n_x], [pts_n_y], [1]]                                    # 対象物の1カメ正規化画像座標系を1カメカメラ座標系に変換
+        pts_n_w = (np.linalg.inv(self.R)) @ (np.array(pts_n_c) - np.array(self.tvecs))
         return pts_n_w
     
     def i_to_fixed_w(self,u, v, fixed_var, value):      # ワールド座標の三変数のうち，1つを固定することで，1台のカメラからワールド座標を推定する関数
@@ -58,7 +59,7 @@ class Camera:
             pts_w_z = ((value - self.camera_w[0][0])/slopezx_w) + self.camera_w[2][0]
             pts_w_y = round(pts_w_y, 4)
             pts_w_z = round(pts_w_z, 4)
-            print([value,pts_w_y,-pts_w_z])
+            return [value,pts_w_y,-pts_w_z]
         elif fixed_var == 'y':
             slopexy_w = (self.camera_w[1][0] - pts_n_w[1][0])/(self.camera_w[0][0] - pts_n_w[0][0])
             pts_w_x = ((value - self.camera_w[1][0])/slopexy_w) + self.camera_w[0][0]
@@ -66,7 +67,7 @@ class Camera:
             pts_w_z = ((value - self.camera_w[1][0])/slopezy_w) + self.camera_w[2][0]
             pts_w_x = round(pts_w_x, 4)
             pts_w_z = round(pts_w_z, 4)
-            print([pts_w_x,value,-pts_w_z])
+            return [pts_w_x,value,-pts_w_z]
         elif fixed_var == 'z':
             slopexz_w = (self.camera_w[2][0] - pts_n_w[2][0])/(self.camera_w[0][0] - pts_n_w[0][0])
             pts_w_x = ((value - self.camera_w[2][0])/slopexz_w) + self.camera_w[0][0]
@@ -74,7 +75,9 @@ class Camera:
             pts_w_y = ((value - self.camera_w[2][0])/slopeyz_w) + self.camera_w[1][0]
             pts_w_x = round(pts_w_x, 4)
             pts_w_y = round(pts_w_y, 4)
-            print([pts_w_x,pts_w_y,-value])
+            return [pts_w_x,pts_w_y,-value]
+        
+        return None
             
     def projection(self, w_x, w_y, w_z):
         C = self.R @ [[w_x], [w_y], [w_z]] + self.tvecs
@@ -84,75 +87,13 @@ class Camera:
         i_v = I[1][0]
         return i_u, i_v
 
+
+
 class TwoCameras:
     def __init__(self, cam1, cam2):
         self.cam1 = cam1
         self.cam2 = cam2
 
-    """def ScaleFactor(self):       # スケールファクタを求める関数，結果をスケールファクタで割ることで1マスが1になるようにする
-        stdnum_z = 2         # Z軸方向スケールファクタを求める時の基準点の個数は，tate*yoko*stdnum 個
-
-        std_w = []          # チェッカーボードの交点のワールド座標を格納する配列
-        for i in range(self.tate):
-            for j in range(self.yoko):
-                k = i*self.yoko + j
-                camera1_w, obj1_w = self.line_SEpoint(self.imgpoints[0][k][0][0], self.imgpoints[0][k][0][1], 1)
-                camera2_w, obj2_w = self.line_SEpoint(self.imgpoints2[0][k][0][0], self.imgpoints2[0][k][0][1], 2)
-                line1x = np.hstack((self.cam1.camera_w[0].T, obj1_w[0].T)).reshape(2, 3)
-                line2x = np.hstack((camera2_w[0].T, obj2_w[0].T)).reshape(2, 3)
-                res = distance_2lines(line1x, line2x)
-                std_w.append(res)
-        self.origin = std_w[0]  # 原点のワールド座標
-
-        # X軸方向
-        std_diffx = []
-        for i in range(self.tate):
-            for j in range(self.yoko-1):
-                k = i*self.yoko + j
-                std_diffx.append(std_w[k+1][0] - std_w[k][0])
-        SFx = np.mean(std_diffx)    # 差の平均
-        if SFx > 0:
-            self.pn[0] = 1
-        else:
-            self.pn[0] = -1
-
-        # Y軸方向
-        std_diffy = []
-        for i in range(self.tate-1):
-            for j in range(self.yoko):
-                k = i*self.yoko + j
-                std_diffy.append(std_w[k + self.yoko][1] - std_w[k][1])
-        SFy = np.mean(std_diffy)    # 差の平均
-        if SFy > 0:
-            self.pn[1] = 1
-        else:
-            self.pn[1] = -1
-
-        # Z軸方向
-        std_w_z = []
-        for i in range(self.tate):
-            for j in range(self.yoko):
-                for k in range(stdnum_z+1):
-                    stdpointsz, _ = cv2.projectPoints(np.float32([j,i,-k]), self.rvecs[-1], self.tvecs[-1], self.mtx, self.dist)
-                    stdpoints2z, _ = cv2.projectPoints(np.float32([j,i,-k]), self.rvecs2[-1], self.tvecs2[-1], self.mtx2, self.dist2)
-                    camera1_w, obj1_w = self.line_SEpoint(stdpointsz[0][0][0], stdpointsz[0][0][1], 1)
-                    camera2_w, obj2_w = self.line_SEpoint(stdpoints2z[0][0][0], stdpoints2z[0][0][1], 2)
-                    line1z = np.hstack((camera1_w[0].T, obj1_w[0].T)).reshape(2, 3)
-                    line2z = np.hstack((camera2_w[0].T, obj2_w[0].T)).reshape(2, 3)
-                    res_z = self.distance_2lines(line1z, line2z)
-                    std_w_z.append(res_z[2])
-        std_diffz = []
-        for i in range(self.yoko*self.tate):
-            for j in range(stdnum_z):
-                k = j + i*(stdnum_z+1)
-                std_diffz.append(std_w_z[k+1]-std_w_z[k])
-        SFz = np.mean(std_diffz)
-        if SFz > 0:
-            self.pn[2] = 1
-        else:
-            self.pn[2] = -1
-
-        self.SF = [SFx, SFy, SFz]"""
 
     def two_lines_to_point(self):
         line1 = np.hstack((self.cam1.camera_w.T, self.cam1.click_n_w.T)).reshape(2, 3)   # 1カメのワールド座標 と 1カメ画像でクリックされた点のワールド座標を通る直線
@@ -192,6 +133,65 @@ class TwoCameras:
             img = cv2.line(img, (0, int(startpoint_i2y)), (img.shape[1], int(endpoint_i2y)), (0, 165, 255), 2)    # エピポーラ線を描画
         
         return img
+    
+
+
+    def corners_W(self,img,corners_cam1,corners_cam2):
+        #corners_diff_list = []
+        img_x = img.copy()
+        img_y = img.copy()
+        img_z = img.copy()
+        for i,j in zip(corners_cam1, corners_cam2):
+            corners_cam1_n_w = self.cam1.i_to_n_w(i[0][0],i[0][1])
+            corners_cam2_n_w = self.cam2.i_to_n_w(j[0][0],j[0][1])
+            line1 = np.hstack((self.cam1.camera_w.T, corners_cam1_n_w.T)).reshape(2, 3)
+            line2 = np.hstack((self.cam2.camera_w.T, corners_cam2_n_w.T)).reshape(2, 3)
+            res = distance_2lines(line1, line2)                                  # 2本の直線の最接近点のワールド座標を求める
+            #corners_diff_list.append(res)
+            res[0] = round(res[0], 2)                                             # 結果の値を四捨五入
+            res[1] = round(res[1], 2)
+            res[2] = round(res[2], 2)
+
+            cv2.putText(img_x,
+                #text= f'person{count}, {round(float(conf), 3)}',
+                text= str(res[0]),
+                org=(int(i[0][0]), int(i[0][1])),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.5,
+                color=(100,0,0),
+                thickness=2,
+                lineType=cv2.LINE_4)
+            
+            cv2.putText(img_y,
+                #text= f'person{count}, {round(float(conf), 3)}',
+                text= str(res[1]),
+                org=(int(i[0][0]), int(i[0][1])),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.5,
+                color=(0,100,0),
+                thickness=2,
+                lineType=cv2.LINE_4)
+            
+            cv2.putText(img_z,
+                #text= f'person{count}, {round(float(conf), 3)}',
+                text= str(res[2]),
+                org=(int(i[0][0]), int(i[0][1])),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.5,
+                color=(0,0,100),
+                thickness=2,
+                lineType=cv2.LINE_4)
+            
+        return img_x,img_y,img_z
+        
+
+        """for i in range(self.cam1.TATE):
+            for j in range(self.cam1.YOKO-1):
+                k = j + i*self.cam1.YOKO
+                corners_diff = corners_diff_list[k][0]-corners_diff_list[k+1][0]
+                print(corners_diff)"""
+
+
 
 
 
@@ -281,30 +281,35 @@ def main():
     for i in cam_id:
         cap_list.append(cv2.VideoCapture(i))
 
-    corners_cam1 = np.array([102, 171, 173, 157, 247, 143, 318, 132, 389, 121, 452, 113, 103, 220, 182, 205, 261, 191, 339, 177, 415, 164, 482, 153, 107, 281, 193, 264, 280, 247, 366, 230, 446, 215, 517, 200, 114, 353, 207, 335, 304, 315, 396, 295, 482, 275, 556, 257, 125, 437, 228, 419, 332, 395, 432, 370, 522, 343, 598, 320],dtype='float32').reshape(-1,1,2)
-    corners_cam2 = np.array([253, 79, 316, 93, 381, 109, 453, 127, 525, 145, 595, 166, 218, 117, 283, 133, 355, 150, 431, 172, 510, 193, 588, 215, 179, 161, 247, 179, 322, 201, 405, 225, 491, 249, 577, 275, 135, 213, 204, 236, 285, 261, 372, 290, 467, 319, 560, 346, 85, 271, 157, 300, 240, 332, 334, 366, 435, 400, 538, 430],dtype='float32').reshape(-1,1,2)
+    corners_cam1 = np.array([101, 139, 173, 127, 246, 114, 319, 105, 388, 95, 454, 88, 101, 191, 180, 176, 261, 162, 339, 150, 416, 139, 484, 128, 104, 251, 190, 235, 278, 219, 366, 204, 447, 189, 517, 175, 108, 323, 204, 306, 301, 287, 395, 269, 481, 251, 556, 233, 118, 409, 223, 391, 330, 369, 430, 346, 519, 321, 597, 297],dtype='float32').reshape(-1,1,2)
+    corners_cam2 = np.array([242, 72, 304, 83, 372, 96, 444, 110, 516, 126, 588, 144, 209, 112, 275, 123, 346, 138, 424, 155, 504, 173, 582, 193, 171, 157, 240, 172, 315, 190, 400, 210, 487, 231, 574, 253, 130, 209, 200, 229, 280, 251, 371, 275, 466, 301, 561, 324, 83, 270, 154, 296, 240, 323, 334, 353, 437, 383, 542, 410],dtype='float32').reshape(-1,1,2)
     corners_list = [corners_cam1, corners_cam2]
-
 
     imgpoints_list = []
     # カメラからの画像取得
-    for i, (cap, conners) in enumerate(zip(cap_list, corners_list)):
+    for i, (cap, corners) in enumerate(zip(cap_list, corners_list)):
         _, frame = cap.read()
         gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-        SubPix_corners = cv2.cornerSubPix(gray, conners, (11,11), (-1,-1), criteria)
+        SubPix_corners = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)
         imgpoints_list.append(SubPix_corners)
 
         cv2.imshow(f'camera{i+1}', frame)       # あとでクリックイベントを設定するために，ここでウィンドウを出しておく
 
 
     # 内部パラメータ
-    mtx1 = np.array([670.42674146, 0, 343.11230192, 0, 671.2945385, 228.79870936, 0, 0, 1]).reshape(3,3)
-    mtx2 = np.array([679.96806792, 0, 346.17428752, 0, 680.073095, 223.11864352, 0, 0, 1]).reshape(3,3)
+    mtx1 = np.array([679.96806792, 0, 346.17428752, 0, 680.073095, 223.11864352, 0, 0, 1]).reshape(3,3)
+    mtx2 = np.array([670.42674146, 0, 343.11230192, 0, 671.2945385, 228.79870936, 0, 0, 1]).reshape(3,3)
+    #mtx1 = np.array([610.438, 0, 425.001, 0, 610.827, 249.771, 0, 0, 1]).reshape(3,3)
+    #mtx2 = np.array([616.911, 0, 411.048, 0, 616.635, 242.601, 0, 0, 1]).reshape(3,3)
+    
     mtx_list = [mtx1, mtx2]
 
     # 歪み係数
-    dist1 = np.array([-0.44761361, 0.30931205, -0.00102743, 0.00163647, -0.1970753]).reshape(1,-1)
-    dist2 = np.array([-4.65322789e-01, 3.88192556e-01, -2.58061417e-03, -1.69216076e-04, -3.97886097e-01]).reshape(1,-1)
+    dist1 = np.array([-4.65322789e-01, 3.88192556e-01, -2.58061417e-03, -1.69216076e-04, -3.97886097e-01]).reshape(1,-1)
+    dist2 = np.array([-0.44761361, 0.30931205, -0.00102743, 0.00163647, -0.1970753]).reshape(1,-1)
+    #dist1 = np.array([0, 0, 0, 0, 0]).reshape(1,-1)
+    #dist2 = np.array([0, 0, 0, 0, 0]).reshape(1,-1)
+    
 
     dist_list = [dist1, dist2]
 
@@ -312,14 +317,13 @@ def main():
     rvecs_list = []
     tvecs_list = []
     axes_i_list = []
-    for SubPix_corners, mtx, dist, corners in zip(imgpoints_list, mtx_list, dist_list,   corners_list):
+    for SubPix_corners, mtx, dist in zip(imgpoints_list, mtx_list, dist_list):
         # 外部パラメータ
         _, rvecs, tvecs, _ = cv2.solvePnPRansac(objp, SubPix_corners, mtx, dist)
         rvecs_list.append(rvecs)
         tvecs_list.append(tvecs)
         # 座標軸の画像座標
         axes_i = axes_pts_i(rvecs, tvecs, mtx, dist)
-        #axes_i = np.append(axes_i, corners[0][0][0])
         axes_i_list.append(axes_i)
 
     """
@@ -335,13 +339,19 @@ def main():
         cam = Camera(mtx, dist, rvecs, tvecs, TATE, YOKO, imgpoints)
         cam_list.append(cam)
         cv2.setMouseCallback(f'camera{i+1}', cam.onMouse)         # 1カメの画像に対するクリックイベント
-        
+
     tcams = TwoCameras(cam_list[0],cam_list[1])
 
+    _, frame = cap_list[0].read()
+    img_x,img_y,img_z = tcams.corners_W(frame,corners_cam1,corners_cam2)
+    cv2.imshow("Xw",img_x)
+    cv2.imshow("Yw",img_y)
+    cv2.imshow("Zw",img_z)
+
     while True:
-        for i, (cam, cap, conners, axes_i) in enumerate(zip(cam_list, cap_list, corners_list, axes_i_list)):
+        for i, (cam, cap, corners, axes_i) in enumerate(zip(cam_list, cap_list, corners_list, axes_i_list)):
             _, frame = cap.read()
-            img_axes = draw_axes(frame, conners, axes_i)
+            img_axes = draw_axes(frame, corners, axes_i)
             img_epipo = tcams.draw_epipo(img_axes, i+1)
             cv2.imshow(f'camera{i+1}', img_epipo)
         
@@ -356,6 +366,7 @@ def main():
 
     for cap in cap_list:
         cap.release()
+
 
 if __name__ == "__main__":
     main()
