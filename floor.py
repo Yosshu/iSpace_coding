@@ -248,19 +248,19 @@ class Estimation:
         points_i = points_i[[0, 1, 3, 2],:]
         area_color = (255,255,0) if flag else (50,50,0)
         cv2.polylines(img, [points_i], True, area_color, thickness=3)
-        cv2.putText(img,
+        cv2.putText(img,                                                                    # エリア内の人の数
             text= f'{count}',
             org=(int(np.mean(points_i[:, 0])-20), int(np.mean(points_i[:, 1])-10)),
             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=2.0,
+            fontScale=3.0,
             color=area_color,
             thickness=3,
             lineType=cv2.LINE_4)
-        cv2.putText(img,
+        cv2.putText(img,                                                                    # 滞在時間
             text= f'{round(total_time,2)}s',
             org=(int(points_i[0][0]), int(np.mean(points_i[:, 1])+50)),
             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=2.0,
+            fontScale=3.0,
             color=area_color,
             thickness=3,
             lineType=cv2.LINE_4)
@@ -315,7 +315,7 @@ def main():
     imgpoints = [] # 2d points in image plane.
 
     # 軸の定義
-    axis = np.float32([[2,0,0], [0,2,0], [0,0,-2]]).reshape(-1,3)
+    axis = np.float32([[1,0,0], [0,1,0], [0,0,-1]]).reshape(-1,3)
 
 
     dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
@@ -323,14 +323,18 @@ def main():
     # CORNER_REFINE_NONE, no refinement. CORNER_REFINE_SUBPIX, do subpixel refinement. CORNER_REFINE_CONTOUR use contour-Points
     parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
 
-    cap1 = cv2.VideoCapture(0)          #カメラの設定　デバイスIDは0
+    cap = cv2.VideoCapture(0)          #カメラの設定　デバイスIDは0
+
+    # カメラの解像度を設定
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 幅の設定
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 高さの設定
 
 
 
-    _, frame1 = cap1.read()           #カメラからの画像取得
+    _, frame1 = cap.read()           #カメラからの画像取得
     gray = cv2.cvtColor(frame1,cv2.COLOR_BGR2GRAY)
     cv2.imshow('camera1' , frame1)
-    corners = np.array([253, 79, 316, 93, 381, 109, 453, 127, 525, 145, 595, 166, 218, 117, 283, 133, 355, 150, 431, 172, 510, 193, 588, 215, 179, 161, 247, 179, 322, 201, 405, 225, 491, 249, 577, 275, 135, 213, 204, 236, 285, 261, 372, 290, 467, 319, 560, 346, 85, 271, 157, 300, 240, 332, 334, 366, 435, 400, 538, 430],dtype='float32').reshape(-1,1,2)
+    corners = np.array([389, 266, 494, 265, 605, 262, 719, 261, 830, 261, 937, 262, 365, 338, 478, 337, 600, 336, 724, 335, 846, 334, 962, 333, 338, 423, 461, 424, 593, 424, 730, 423, 864, 421, 990, 417, 309, 523, 441, 529, 586, 531, 736, 531, 885, 526, 1018, 517, 279, 637, 422, 651, 578, 657, 743, 657, 905, 650, 1050, 635],dtype='float32').reshape(-1,1,2)
     corners12 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
     imgpoints.append(corners12)
 
@@ -345,10 +349,9 @@ def main():
     """
     ret, mtx, dist, _, _ = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1],None,None,flags=cv2.CALIB_RATIONAL_MODEL) # _, _ は，rvecs, tvecs
     """
-    mtx = np.array([679.96806792, 0, 346.17428752, 0, 680.073095, 223.11864352, 0, 0, 1]).reshape(3,3)
-    # 640,480
+    mtx = np.array([1.01644397e+03, 0.00000000e+00, 6.87903319e+02, 0.00000000e+00, 1.01960682e+03, 3.37505807e+02, 0.00000000e+00, 0.00000000e+00, 1.00000000e+00]).reshape(3,3)
 
-    dist = np.array([-4.65322789e-01, 3.88192556e-01, -2.58061417e-03, -1.69216076e-04, -3.97886097e-01])
+    dist = np.array([-4.31940522e-01, 2.19409920e-01, -4.78545150e-05, 1.18269452e-03, -7.07910142e-02])
 
     _, rvecs, tvecs, _ = cv2.solvePnPRansac(objp, corners12, mtx, dist)
     rvecs = [rvecs]
@@ -370,11 +373,11 @@ def main():
 
     cv2.setMouseCallback('camera1', es.onMouse)         # 1カメの画像に対するクリックイベント
 
-    WHERE_AREA = ((1,1),(4,3))
+    WHERE_AREA = ((0,1),(5,3))
     
 
     while True:
-        ret, frame1 = cap1.read()           # カメラからの画像取得
+        ret, frame1 = cap.read()           # カメラからの画像取得
         results = model(frame1)             # 人の検出
         img_axes = frame1.copy()
         #objects = results.pandas().xyxy[0]
@@ -398,7 +401,7 @@ def main():
             
             PERSON_COLOR = (0,0,200)
             # バウンディングボックスの描画
-            if conf >= 0.6:
+            if conf >= 0.5:
                 if int(cls) == 0:  # クラスがpersonの場合
                     cv2.rectangle(img_axes, (int(xmin), int(ymin)), (int(xmax), int(ymax)), PERSON_COLOR, 2)
                     cv2.putText(img_axes,
@@ -421,15 +424,15 @@ def main():
             img_axes = es.line_update(img_axes)
             cv2.imshow('camera1', img_axes)      #カメラの画像の出力
 
-        big_img = img_axes.copy()
-        big_img = cv2.resize(big_img,dsize=(big_img.shape[1]*15//8,big_img.shape[0]*15//8))       # これで出力画像のサイズを変更
-        cv2.imshow('iSpace_big_img', big_img)      #カメラの画像の出力
+        """big_img = img_axes.copy()
+        big_img = cv2.resize(big_img,dsize=(big_img.shape[1]*3//2,big_img.shape[0]*3//2))       # これで出力画像のサイズを変更
+        cv2.imshow('iSpace_big_img', big_img)      #カメラの画像の出力"""
 
-            
+
         #繰り返し分から抜けるためのif文
         key =cv2.waitKey(1)
         if key == 27:   #Escで終了
-            cap1.release()
+            cap.release()
             cv2.destroyAllWindows()
             break
 
