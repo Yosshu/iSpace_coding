@@ -91,6 +91,58 @@ def isfloat(s):  # 浮動小数点数値を表しているかどうかを判定
         return True  # 変換できたのでTrueを返す
 
 
+"""def draw_map(xyz, width, height, xmin, xmax, ymin, ymax):        # 環境地図を表示する関数
+    # 環境地図の初期化（サイズや背景色などを指定）
+    map_image = np.zeros((height, width, 3), dtype=np.uint8)
+    map_image.fill(255)  # 白色で塗りつぶす
+
+    # 人のワールド座標のXとY座標を地図上に描画
+    for point in xyz:
+        x, y, _ = point
+        # 座標変換して描画
+        x_on_map = int((x - xmin) / (xmax - xmin) * width)
+        y_on_map = int((y - ymin) / (ymax - ymin) * height)
+        cv2.circle(map_image, (x_on_map, y_on_map), radius=5, color=(0, 0, 255), thickness=-1)
+
+    # 地図の表示
+    cv2.imshow("Environment Map", map_image)"""
+
+
+def draw_map(xyz, width, height, xmin, xmax, ymin, ymax):
+    # 環境地図の初期化（サイズや背景色などを指定）
+    map_image = np.zeros((height, width, 3), dtype=np.uint8)
+    map_image.fill(255)  # 白色で塗りつぶす
+
+    # 人のワールド座標のXとY座標を地図上に描画
+    for point in xyz:
+        x, y, _ = point
+        x = x*50
+        y = y*50
+        # 座標変換して描画
+        x_on_map = int(((x - xmin) / (xmax - xmin)) * width)
+        y_on_map = int(((y - ymin) / (ymax - ymin)) * height)
+        cv2.circle(map_image, (x_on_map, y_on_map), radius=5, color=(0, 0, 255), thickness=-1)
+
+    # 格子状の線を描画
+    grid_spacing_cm = 50  # 格子の間隔（50cmごと）
+    grid_spacing_pixels = int((grid_spacing_cm / (xmax - xmin)) * width)  # 格子の間隔をピクセルに変換
+    grid_color = (128, 128, 128)  # 格子の色（グレー）
+    grid_thickness = 1  # 格子の太さ
+
+    # 縦の格子線を描画
+    for x in range(0, width, grid_spacing_pixels):
+        cv2.line(map_image, (x, 0), (x, height), grid_color, grid_thickness)
+
+    # 横の格子線を描画
+    for y in range(0, height, grid_spacing_pixels):
+        cv2.line(map_image, (0, y), (width, y), grid_color, grid_thickness)
+
+    cv2.rectangle(map_image, (200,100), (700,300), (50,50,0), 2)
+
+    # 地図の表示
+    cv2.imshow("Environment Map", map_image)
+
+(0,1),(5,3)
 
 class Estimation:
     def __init__(self, mtx, dist, rvecs, tvecs, img, imgpoints, tate, yoko):
@@ -233,9 +285,7 @@ class Estimation:
         return ret, self.target_i
     """
 
-    def in_area(self, xmed_i, ymax_i, area_xmin_w, area_ymin_w, area_xmax_w, area_ymax_w):
-        bottom_xy_w = self.pointFixZ(xmed_i, ymax_i, 0)
-        xmed_i, ymax_i
+    def in_area(self, bottom_xy_w , area_xmin_w, area_ymin_w, area_xmax_w, area_ymax_w):
         if area_xmin_w <= bottom_xy_w[0] <= area_xmax_w and area_ymin_w <= bottom_xy_w[1] <= area_ymax_w:
             return True
         return False
@@ -374,7 +424,13 @@ def main():
     cv2.setMouseCallback('camera1', es.onMouse)         # 1カメの画像に対するクリックイベント
 
     WHERE_AREA = ((0,1),(5,3))
-    
+
+    # 環境地図の範囲指定
+    MAP_XMIN, MAP_XMAX = -100, 350
+    MAP_YMIN, MAP_YMAX = 0, 200
+    # 環境地図のサイズ指定
+    MAP_WIDTH, MAP_HEIGHT = 900, 400
+
 
     while True:
         ret, frame1 = cap.read()           # カメラからの画像取得
@@ -390,11 +446,14 @@ def main():
         #print(f'xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}')
         count_people = 0
         any_in_area = False
+        people_bottom_w_xyz_list = []
         for count, bbox in enumerate(results.xyxy[0]):
             xmin, ymin, xmax, ymax, conf, cls = bbox
-            person_bottom_x_i = int((xmin+xmax)/2)
-            person_bottom_y_i = int(ymax)
-            is_in_area = es.in_area(person_bottom_x_i, person_bottom_y_i, *WHERE_AREA[0], *WHERE_AREA[1])
+            person_bottom_i_x = int((xmin+xmax)/2)
+            person_bottom_i_y = int(ymax)
+            people_bottom_w_xyz = es.pointFixZ(person_bottom_i_x, person_bottom_i_y, 0)
+            people_bottom_w_xyz_list.append(people_bottom_w_xyz)
+            is_in_area = es.in_area(people_bottom_w_xyz, *WHERE_AREA[0], *WHERE_AREA[1])
             any_in_area = any_in_area or is_in_area
             if is_in_area:
                 count_people = count_people + 1
@@ -414,6 +473,10 @@ def main():
                         thickness=2,
                         lineType=cv2.LINE_4)
                     
+
+        # 人の座標を地図上に描画
+        draw_map(people_bottom_w_xyz_list, MAP_WIDTH, MAP_HEIGHT, MAP_XMIN, MAP_XMAX, MAP_YMIN, MAP_YMAX)
+
         total_time = rtime.start_and_accumulate(any_in_area)
         img_axes = es.draw_area(img_axes, *WHERE_AREA[0], *WHERE_AREA[1], 0, any_in_area, count_people, total_time)
 
