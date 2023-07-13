@@ -12,74 +12,118 @@ class EnvironmentMap:
 
         self.model = model
 
+        self.area_start = []
+        self.area_end = []
+
+
         self.cap = cv2.VideoCapture(0)          #カメラの設定　デバイスIDは0
         # カメラの解像度を設定
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 幅の設定
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 高さの設定
 
-        self.main_window = tk.Tk()
+        self.root = tk.Tk()
+        # ウィンドウにクリックイベントのバインド
+        self.root.bind("<Button-1>", self.on_left_click_down)         # 左クリック（押し下げ）
+        self.root.bind("<ButtonRelease-1>", self.on_left_click_up)    # 左クリック（離す）
+        #self.root.bind("<Double-Button-1>", self.on_left_double_click)    # 左ダブルクリック
+        #self.root.bind("<B1-Motion>", self.on_left_click_drag)        # 左クリックドラッグ
+
 
         # 環境地図の範囲指定
-        self.map_wxmin, self.map_wxmax = -100, 350
-        self.map_wymin, self.map_wymax = 0, 200
+        self.map_wxmin, self.map_wxmax = -2, 7
+        self.map_wymin, self.map_wymax = -0.5, 4
         # 環境地図のサイズ指定
-        self.map_width, self.map_height = 900, 400
+        self.map_width, self.map_height = 900, 450
 
-        self.main_window.title("Environment Map")
-        self.main_window.geometry(f"{self.map_width}x{self.map_height}")
+        self.root.title("Environment Map")
+        self.root.geometry(f"{self.map_width}x{self.map_height}")
         
         self.map_img = self.make_map()
         self.map_image = convert_cv2_to_tkinter(self.map_img)
 
         # 画像を表示するラベルを作成
-        self.main_label = tk.Label(self.main_window, image=self.map_image)
+        self.main_label = tk.Label(self.root, image=self.map_image)
         self.main_label.pack()
 
         # カメラ画像ウィンドウを作成
-        camera_window = tk.Toplevel(self.main_window)
+        camera_window = tk.Toplevel(self.root)
         camera_window.title("camera")
         # カメラ画像ウィンドウにラベルを追加
         self.camera_label = tk.Label(camera_window)
         self.camera_label.pack()
+
+
+    def on_left_click_down(self, event):
+        self.area_end = []
+        self.area_start = [event.x, event.y]
+
+    def on_left_click_up(self, event):
+        self.area_end = [event.x, event.y]
+
+    def on_left_double_click(self, event):
+        print("Left double click")
+
+    def on_left_click_drag(self, event):
+        print("Left click drag")
+
+    def on_left_click_release(self, event):
+        print("Left click release")
 
     def make_map(self):
         # 環境地図の初期化（サイズや背景色などを指定）
         map_img = np.zeros((self.map_height, self.map_width, 3), dtype=np.uint8)
         map_img.fill(255)  # 白色で塗りつぶす
 
-        # 格子状の線を描画
-        grid_spacing_cm = 50  # 格子の間隔（50cmごと）
-        grid_spacing_pixels = int((grid_spacing_cm / (self.map_wxmax - self.map_wxmin)) * self.map_width)  # 格子の間隔をピクセルに変換
+        # ワールド座標の1ごとに格子線を描画
         grid_color = (128, 128, 128)  # 格子の色（グレー）
         grid_thickness = 1  # 格子の太さ
 
-        # 縦の格子線を描画
-        for x in range(0, self.map_width, grid_spacing_pixels):
-            cv2.line(map_img, (x, 0), (x, self.map_height), grid_color, grid_thickness)
+        for x in range(int(self.map_wxmin), int(self.map_wxmax)+1):
+            x_map, _ = self.W_to_map(x, 0)
+            cv2.line(map_img, (x_map, 0), (x_map, self.map_height), grid_color, grid_thickness)
 
-        # 横の格子線を描画
-        for y in range(0, self.map_height, grid_spacing_pixels):
-            cv2.line(map_img, (0, y), (self.map_width, y), grid_color, grid_thickness)
+        for y in range(int(self.map_wymin), int(self.map_wymax)+1):
+            _, y_map = self.W_to_map(0, y)
+            cv2.line(map_img, (0, y_map), (self.map_width, y_map), grid_color, grid_thickness)
 
-        cv2.rectangle(map_img, (200, 100), (700, 300), (50, 50, 0), 2)
-        
+        origin_map_u, origin_map_v = self.W_to_map(0, 0)
+        x_axis_map_u, x_axis_map_v = self.W_to_map(1, 0)
+        y_axis_map_u, y_axis_map_v = self.W_to_map(0, 1)
+        cv2.line(map_img, (int(origin_map_u), int(origin_map_v)), (int(x_axis_map_u), int(x_axis_map_v)), (255,0,0), 2)
+        cv2.line(map_img, (int(origin_map_u), int(origin_map_v)), (int(y_axis_map_u), int(y_axis_map_v)), (0,255,0), 2)
+
         return map_img
     
+
+    def W_to_map(self, x_w, y_w):
+        # ワールド座標を環境地図のピクセル座標に変換
+        x_map = int(((x_w - self.map_wxmin) / (self.map_wxmax - self.map_wxmin)) * self.map_width)
+        y_map = int(((y_w - self.map_wymin) / (self.map_wymax - self.map_wymin)) * self.map_height)
+        return x_map, y_map
+
+    def map_to_W(self, x_map, y_map):
+        # 環境地図のピクセル座標をワールド座標に変換
+        x_w = (x_map / self.map_width) * (self.map_wxmax - self.map_wxmin) + self.map_wxmin
+        y_w = (y_map / self.map_height) * (self.map_wymax - self.map_wymin) + self.map_wymin
+        return x_w, y_w
+
     def draw_people(self, image, xyz_list):
         # 人のワールド座標のXとY座標を地図上に描画
         for point in xyz_list:
-            x, y, _ = point
-            x = x*50
-            y = y*50
+            x_w, y_w, _ = point
             # 座標変換して描画
-            x_on_map = int(((x - self.map_wxmin) / (self.map_wxmax - self.map_wxmin)) * self.map_width)
-            y_on_map = int(((y - self.map_wymin) / (self.map_wymax - self.map_wymin)) * self.map_height)
-            cv2.circle(image, (x_on_map, y_on_map), radius=5, color=(0, 0, 255), thickness=-1)
+            x_map, y_map = self.W_to_map(x_w, y_w)
+            cv2.circle(image, (x_map, y_map), radius=5, color=(0, 0, 255), thickness=-1)
         return image
+    
+    def draw_area(self, img):
+        if self.area_start and self.area_end:
+            cv2.rectangle(img, (int(self.area_start[0]), int(self.area_start[1])), (int(self.area_end[0]), int(self.area_end[1])), (50, 50, 0), 2)
+        return img
 
 
     def update_map(self):
-        WHERE_AREA = ((0,1),(5,3))
+        self.area_rect = ((0,1),(5,3))
 
         ret, frame1 = self.cap.read()           # カメラからの画像取得
         results = self.model(frame1)             # 人の検出
@@ -101,7 +145,7 @@ class EnvironmentMap:
             person_bottom_i_y = int(ymax)
             people_bottom_w_xyz = self.cam.pointFixZ(person_bottom_i_x, person_bottom_i_y, 0)
             people_bottom_w_xyz_list.append(people_bottom_w_xyz)
-            is_in_area = self.cam.in_area(people_bottom_w_xyz, *WHERE_AREA[0], *WHERE_AREA[1])
+            is_in_area = self.cam.in_area(people_bottom_w_xyz, *self.area_rect[0], *self.area_rect[1])
             any_in_area = any_in_area or is_in_area
             if is_in_area:
                 count_people = count_people + 1
@@ -122,14 +166,12 @@ class EnvironmentMap:
                         lineType=cv2.LINE_4)
 
         total_time = self.rtime.start_and_accumulate(any_in_area)
-        frame2 = self.cam.draw_area(frame2, *WHERE_AREA[0], *WHERE_AREA[1], 0, any_in_area, count_people, total_time)
+        frame2 = self.cam.draw_area(frame2, *self.area_rect[0], *self.area_rect[1], 0, any_in_area, count_people, total_time)
 
         img_axes = draw_axes(frame2,self.cam.corners12,self.cam.imgpts)
         #frame1 = cv2.resize(frame1,dsize=(frame1.shape[1]*2,frame1.shape[0]*2))
         #if ret:
         #    frame2 = self.cam.line_update(frame2)
-
-
 
         image_axes = convert_cv2_to_tkinter(img_axes)
         self.camera_label.image = image_axes
@@ -137,14 +179,18 @@ class EnvironmentMap:
 
 
         self.map_img = self.make_map()
+
+        self.map_img = self.draw_area(self.map_img)
+        
         self.map_img = self.draw_people(self.map_img, people_bottom_w_xyz_list)     # 人の座標を地図上に描画
         self.map_image = convert_cv2_to_tkinter(self.map_img)
         self.main_label.configure(image=self.map_image)
-        self.main_window.after(100, self.update_map)
+        self.root.after(20, self.update_map)
+
 
     def run(self):
         # ウィンドウの表示とイベントループの開始
-        self.main_window.mainloop()
+        self.root.mainloop()
 
 
 
@@ -238,17 +284,6 @@ class Camera:
         
         self.click = 0
         self.widthy = 1
-
-    def onMouse(self, event, x, y, flags, params):      # 1カメの画像に対するクリックイベント
-        if self.click == 0:
-            if event == cv2.EVENT_MBUTTONDOWN:    # 中クリック
-                self.click = 1
-                res = self.pointFixZ(x,y,0)
-                res = [round(n*self.scale,2) for n in res]
-                print(f"{res} [cm]")
-                self.obj1_i1x = x
-                self.obj1_timekeepingick = 'M'
-                self.click = 0
 
 
     def line_SEpoint(self, x, y, num):      # 始点（カメラ）と終点（正規化画像座標）のワールド座標を求める関数，numは1カメか2カメか
@@ -497,7 +532,7 @@ def main():
     map.update_map()
 
     # ウィンドウを表示
-    map.main_window.mainloop()
+    map.run()
 
 
 
