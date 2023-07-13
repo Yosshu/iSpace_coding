@@ -5,6 +5,8 @@ import cv2
 import time
 import torch
 
+from itertools import product
+
 class EnvironmentMap:
     def __init__(self, cam, rtime, model):
         self.cam = cam
@@ -12,14 +14,8 @@ class EnvironmentMap:
 
         self.model = model
 
-        self.area_start = []
-        self.area_end = []
-
-
-        self.cap = cv2.VideoCapture(0)          #カメラの設定　デバイスIDは0
-        # カメラの解像度を設定
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 幅の設定
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 高さの設定
+        self.area_start_map = []
+        self.area_end_map = []
 
         self.root = tk.Tk()
         # ウィンドウにクリックイベントのバインド
@@ -27,7 +23,6 @@ class EnvironmentMap:
         self.root.bind("<ButtonRelease-1>", self.on_left_click_up)    # 左クリック（離す）
         #self.root.bind("<Double-Button-1>", self.on_left_double_click)    # 左ダブルクリック
         #self.root.bind("<B1-Motion>", self.on_left_click_drag)        # 左クリックドラッグ
-
 
         # 環境地図の範囲指定
         self.map_wxmin, self.map_wxmax = -2, 7
@@ -45,6 +40,11 @@ class EnvironmentMap:
         self.main_label = tk.Label(self.root, image=self.map_image)
         self.main_label.pack()
 
+
+        self.cap = cv2.VideoCapture(0)          #カメラの設定　デバイスIDは0
+        # カメラの解像度を設定
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 幅の設定
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 高さの設定
         # カメラ画像ウィンドウを作成
         camera_window = tk.Toplevel(self.root)
         camera_window.title("camera")
@@ -54,11 +54,11 @@ class EnvironmentMap:
 
 
     def on_left_click_down(self, event):
-        self.area_end = []
-        self.area_start = [event.x, event.y]
+        self.area_end_map = []
+        self.area_start_map = [event.x, event.y]
 
     def on_left_click_up(self, event):
-        self.area_end = [event.x, event.y]
+        self.area_end_map = [event.x, event.y]
 
     def on_left_double_click(self, event):
         print("Left double click")
@@ -116,18 +116,50 @@ class EnvironmentMap:
             cv2.circle(image, (x_map, y_map), radius=5, color=(0, 0, 255), thickness=-1)
         return image
     
-    def draw_area(self, img):
-        if self.area_start and self.area_end:
-            cv2.rectangle(img, (int(self.area_start[0]), int(self.area_start[1])), (int(self.area_end[0]), int(self.area_end[1])), (50, 50, 0), 2)
+    def draw_area_on_map(self, img):
+        if self.area_start_map and self.area_end_map:
+            cv2.rectangle(img, (int(self.area_start_map[0]), int(self.area_start_map[1])), (int(self.area_end_map[0]), int(self.area_end_map[1])), (50, 50, 0), 2)
         return img
+    
+    def draw_area_on_camera_image(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag, count, total_time):
+        points_w = np.float32([[Xw1, Yw1, Zw], [Xw2, Yw1, Zw], [Xw1, Yw2, Zw], [Xw2, Yw2, Zw]]).reshape(-1,3)
+        points_i, _ = cv2.projectPoints(points_w, self.cam.rvecs[-1], self.cam.tvecs[-1], self.cam.mtx, self.cam.dist)
+        points_i = points_i.reshape(-1, 2)
+        points_i = np.asarray(points_i, dtype = int)
+        points_i = points_i[[0, 1, 3, 2],:]
+        area_color = (255,255,0) if flag else (50,50,0)
+        cv2.polylines(img, [points_i], True, area_color, thickness=3)
+        cv2.putText(img,                                                                    # エリア内の人の数
+            text= f'{count}',
+            org=(int(np.mean(points_i[:, 0])-20), int(np.mean(points_i[:, 1])-10)),
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=3.0,
+            color=area_color,
+            thickness=3,
+            lineType=cv2.LINE_4)
+        cv2.putText(img,                                                                    # 滞在時間
+            text= f'{round(total_time,2)}s',
+            org=(int(points_i[0][0]), int(np.mean(points_i[:, 1])+50)),
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=3.0,
+            color=area_color,
+            thickness=3,
+            lineType=cv2.LINE_4)
+        return img
+    
 
+    def in_area(self, bottom_xy_w , area_xmin_w, area_ymin_w, area_xmax_w, area_ymax_w):
+        if area_xmin_w <= bottom_xy_w[0] <= area_xmax_w and area_ymin_w <= bottom_xy_w[1] <= area_ymax_w:
+            return True
+        return False
+    
 
     def update_map(self):
-        self.area_rect = ((0,1),(5,3))
-
         ret, frame1 = self.cap.read()           # カメラからの画像取得
         results = self.model(frame1)             # 人の検出
         frame2 = frame1.copy()
+
+
         #objects = results.pandas().xyxy[0]
         """
         xmins = results.pandas().xyxy[0]['xmin']
@@ -136,6 +168,7 @@ class EnvironmentMap:
         ymaxs = results.pandas().xyxy[0]['ymax']
         """
         #print(f'xmin: {xmin}, ymin: {ymin}, xmax: {xmax}, ymax: {ymax}')
+        
         count_people = 0
         any_in_area = False
         people_bottom_w_xyz_list = []
@@ -145,10 +178,13 @@ class EnvironmentMap:
             person_bottom_i_y = int(ymax)
             people_bottom_w_xyz = self.cam.pointFixZ(person_bottom_i_x, person_bottom_i_y, 0)
             people_bottom_w_xyz_list.append(people_bottom_w_xyz)
-            is_in_area = self.cam.in_area(people_bottom_w_xyz, *self.area_rect[0], *self.area_rect[1])
-            any_in_area = any_in_area or is_in_area
-            if is_in_area:
-                count_people = count_people + 1
+            if self.area_start_map and self.area_end_map:
+                area_start_w = self.map_to_W(self.area_start_map[0],self.area_start_map[1])
+                area_end_w = self.map_to_W(self.area_end_map[0],self.area_end_map[1])
+                is_in_area = self.in_area(people_bottom_w_xyz, *area_start_w, *area_end_w)
+                any_in_area = any_in_area or is_in_area
+                if is_in_area:
+                    count_people = count_people + 1
             
             PERSON_COLOR = (0,0,200)
             # バウンディングボックスの描画
@@ -166,7 +202,12 @@ class EnvironmentMap:
                         lineType=cv2.LINE_4)
 
         total_time = self.rtime.start_and_accumulate(any_in_area)
-        frame2 = self.cam.draw_area(frame2, *self.area_rect[0], *self.area_rect[1], 0, any_in_area, count_people, total_time)
+
+        if self.area_start_map and self.area_end_map:
+            area_start_w = self.map_to_W(self.area_start_map[0],self.area_start_map[1])
+            area_end_w = self.map_to_W(self.area_end_map[0],self.area_end_map[1])
+            frame2 = self.draw_area_on_camera_image(frame2, *area_start_w, *area_end_w, 0, any_in_area, count_people, total_time)
+        
 
         img_axes = draw_axes(frame2,self.cam.corners12,self.cam.imgpts)
         #frame1 = cv2.resize(frame1,dsize=(frame1.shape[1]*2,frame1.shape[0]*2))
@@ -180,7 +221,7 @@ class EnvironmentMap:
 
         self.map_img = self.make_map()
 
-        self.map_img = self.draw_area(self.map_img)
+        self.map_img = self.draw_area_on_map(self.map_img)
         
         self.map_img = self.draw_people(self.map_img, people_bottom_w_xyz_list)     # 人の座標を地図上に描画
         self.map_image = convert_cv2_to_tkinter(self.map_img)
@@ -372,36 +413,6 @@ class Camera:
         return ret, self.target_i
     """
 
-    def in_area(self, bottom_xy_w , area_xmin_w, area_ymin_w, area_xmax_w, area_ymax_w):
-        if area_xmin_w <= bottom_xy_w[0] <= area_xmax_w and area_ymin_w <= bottom_xy_w[1] <= area_ymax_w:
-            return True
-        return False
-    
-    def draw_area(self, img, Xw1, Yw1, Xw2, Yw2, Zw, flag, count, total_time):
-        points_w = np.float32([[Xw1, Yw1, Zw], [Xw2, Yw1, Zw], [Xw1, Yw2, Zw], [Xw2, Yw2, Zw]]).reshape(-1,3)
-        points_i, _ = cv2.projectPoints(points_w, self.rvecs[-1], self.tvecs[-1], self.mtx, self.dist)
-        points_i = points_i.reshape(-1, 2)
-        points_i = np.asarray(points_i, dtype = int)
-        points_i = points_i[[0, 1, 3, 2],:]
-        area_color = (255,255,0) if flag else (50,50,0)
-        cv2.polylines(img, [points_i], True, area_color, thickness=3)
-        cv2.putText(img,                                                                    # エリア内の人の数
-            text= f'{count}',
-            org=(int(np.mean(points_i[:, 0])-20), int(np.mean(points_i[:, 1])-10)),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=3.0,
-            color=area_color,
-            thickness=3,
-            lineType=cv2.LINE_4)
-        cv2.putText(img,                                                                    # 滞在時間
-            text= f'{round(total_time,2)}s',
-            org=(int(points_i[0][0]), int(np.mean(points_i[:, 1])+50)),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=3.0,
-            color=area_color,
-            thickness=3,
-            lineType=cv2.LINE_4)
-        return img
     
 
 class RetainingTime:
